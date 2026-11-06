@@ -1,0 +1,731 @@
+// ==============================================================================
+// RepairCMS Enterprise — Production Database Schema
+// Multi-tenant repair-center ERP / CRM / POS (PostgreSQL 16 + Prisma ORM)
+//
+// Derived from docs/schemas/schema.prisma, extended with the entities required
+// by the rebuild brief: fiscal number sequences, stock movements, cashbook
+// postings, public tracking sessions, notification outbox and audit log.
+//
+// Tenant isolation rule: every tenant-owned model carries `companyId`
+// (and `locationId` where the entity is branch specific).
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------------------------
+// 1. Multi-tenancy & corporate structure
+// ------------------------------------------------------------------------------
+
+enum PlanType {
+  TRIAL
+  STARTER
+  BUSINESS
+  TEAM
+  ENTERPRISE
+}
+
+model Company {
+  id             String    @id @default(uuid())
+  name           String
+  legalName      String?
+  ceoName        String?
+  vatId          String?
+  taxNumber      String?
+  eInvoiceId     String?
+  currency       String    @default("EUR")
+  timezone       String    @default("Europe/Berlin")
+  locale         String    @default("de-DE")
+  logoUrl        String?
+  street         String?
+  zipCode        String?
+  city           String?
+  country        String    @default("DE")
+  phone          String?
+  email          String?
+  website        String?
+  openingHours   String?   @default("09:00 - 18:00")
+  iban           String?
+  bic            String?
+  bankName       String?
+  portalSlug     String    @unique
+  planType       PlanType  @default(TRIAL)
+  trialEndsAt    DateTime?
+  subscriptionId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  locations        Location[]
+  users            User[]
+  contacts         Contact[]
+  jobs             Job[]
+  invoices         Invoice[]
+  stockItems       StockItem[]
+  stockMovements   StockMovement[]
+  services         Service[]
+  cashbooks        Cashbook[]
+  cashTransactions CashTransaction[]
+  statusConfigs    JobStatusConfig[]
+  templates        MessageTemplate[]
+  sequences        NumberSequence[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+
+  @@index([portalSlug])
+}
+
+model Location {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  code        String?
+  street      String?
+  zipCode     String?
+  city        String?
+  country     String   @default("DE")
+  phone       String?
+  email       String?
+  isMainStore Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  jobs             Job[]
+  stockItems       StockItem[]
+  cashbooks        Cashbook[]
+  cashTransactions CashTransaction[]
+  users            User[]
+  sequences        NumberSequence[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+// ------------------------------------------------------------------------------
+// 2. Identity, roles & permissions
+// ------------------------------------------------------------------------------
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  TECHNICIAN
+  FRONT_DESK
+  ACCOUNTANT
+  READ_ONLY
+}
+
+model User {
+  id             String   @id @default(uuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locationId     String?
+  location       Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  email          String   @unique
+  passwordHash   String
+  firstName      String
+  lastName       String
+  role           UserRole @default(TECHNICIAN)
+  avatarUrl      String?
+  phone          String?
+  language       String   @default("en")
+  theme          String   @default("default")
+  twoFactorEmail Boolean  @default(false)
+  twoFactorApp   Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  assignedJobs    Job[]            @relation("AssignedTechnician")
+  activities      JobActivity[]
+  cashbooksClosed Cashbook[]
+  refreshTokens   RefreshToken[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+
+  @@index([companyId, role])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+// ------------------------------------------------------------------------------
+// 3. Customer & supplier CRM
+// ------------------------------------------------------------------------------
+
+enum ContactType {
+  INDIVIDUAL
+  BUSINESS
+  SUPPLIER
+}
+
+model Contact {
+  id             String      @id @default(uuid())
+  companyId      String
+  company        Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactType    ContactType @default(INDIVIDUAL)
+  customerNumber String
+  salutation     String?
+  title          String?
+  firstName      String?
+  lastName       String?
+  companyName    String?
+  vatId          String?
+  taxNumber      String?
+  eInvoiceId     String?
+  email          String?
+  phone          String?
+  mobile         String?
+  street         String?
+  zipCode        String?
+  city           String?
+  country        String      @default("DE")
+  paymentDueDays Int         @default(14)
+  discountRate   Decimal     @default(0.0) @db.Decimal(5, 2)
+  notes          String?
+  gdprAccepted   Boolean     @default(false)
+  gdprAcceptedAt DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  jobs     Job[]
+  invoices Invoice[]
+  sessions TrackingSession[]
+
+  @@unique([companyId, customerNumber])
+  @@index([companyId, email])
+  @@index([companyId, phone])
+}
+
+// ------------------------------------------------------------------------------
+// 4. Repair orders & the lifecycle engine
+// ------------------------------------------------------------------------------
+
+enum JobStatus {
+  DRAFT
+  BOOKED
+  IN_PROGRESS
+  WAITING_FOR_PARTS
+  READY
+  DELIVERED
+  INVOICED
+  CANCELLED
+}
+
+enum JobPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model Job {
+  id                   String      @id @default(uuid())
+  companyId            String
+  company              Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locationId           String
+  location             Location    @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  contactId            String
+  contact              Contact     @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  assignedTechnicianId String?
+  assignedTechnician   User?       @relation("AssignedTechnician", fields: [assignedTechnicianId], references: [id], onDelete: SetNull)
+
+  jobNumber    String      @unique
+  trackingCode String      @unique
+  status       JobStatus   @default(BOOKED)
+  priority     JobPriority @default(NORMAL)
+
+  deviceType        String   @default("SMARTPHONE")
+  brand             String
+  model             String
+  imei              String?
+  serialNumber      String?
+  color             String?
+  passcode          String?
+  patternLock       Int[]    @default([])
+  cosmeticCondition String?
+  accessories       String[] @default([])
+  devicePhotoUrl    String?
+
+  customerReportedDefect String
+  technicianFindings     String?
+  diagnosisReport        String?
+  internalNotes          String?
+
+  estimatedCost    Decimal @default(0.0) @db.Decimal(12, 2)
+  subtotalNet      Decimal @default(0.0) @db.Decimal(12, 2)
+  taxTotal         Decimal @default(0.0) @db.Decimal(12, 2)
+  totalGross       Decimal @default(0.0) @db.Decimal(12, 2)
+  paidAmount       Decimal @default(0.0) @db.Decimal(12, 2)
+  remainingBalance Decimal @default(0.0) @db.Decimal(12, 2)
+  depositPaid      Decimal @default(0.0) @db.Decimal(12, 2)
+
+  quotationApprovedAt  DateTime?
+  quotationDeclinedAt  DateTime?
+  customerSignatureUrl String?
+  deliverySignatureUrl String?
+
+  dueAt         DateTime?
+  completedAt   DateTime?
+  deliveredAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  items      JobItem[]
+  activities JobActivity[]
+  invoices   Invoice[]
+  sessions   TrackingSession[]
+
+  @@index([companyId, status, createdAt])
+  @@index([companyId, jobNumber])
+}
+
+enum JobItemType {
+  PART
+  LABOR
+  CUSTOM
+}
+
+model JobItem {
+  id              String       @id @default(uuid())
+  jobId           String
+  job             Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stockItemId     String?
+  stockItem       StockItem?   @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
+  serviceId       String?
+  itemType        JobItemType  @default(PART)
+  sku             String?
+  title           String
+  quantity        Decimal      @default(1.0) @db.Decimal(10, 2)
+  unitCostNet     Decimal      @default(0.0) @db.Decimal(12, 2)
+  unitPriceNet    Decimal      @db.Decimal(12, 2)
+  taxRate         Decimal      @default(19.0) @db.Decimal(5, 2)
+  discountPercent Decimal      @default(0.0) @db.Decimal(5, 2)
+  totalNet        Decimal      @db.Decimal(12, 2)
+  totalGross      Decimal      @db.Decimal(12, 2)
+  createdAt       DateTime     @default(now())
+
+  @@index([jobId])
+}
+
+model JobActivity {
+  id                  String     @id @default(uuid())
+  jobId               String
+  job                 Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  previousStatus      JobStatus?
+  newStatus           JobStatus
+  changedById         String
+  changedBy           User       @relation(fields: [changedById], references: [id])
+  comment             String?
+  customerNotified    Boolean    @default(false)
+  notificationChannel String     @default("NONE")
+  createdAt           DateTime   @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+// ------------------------------------------------------------------------------
+// 5. Inventory & goods reception
+// ------------------------------------------------------------------------------
+
+model StockItem {
+  id                 String   @id @default(uuid())
+  companyId          String
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locationId         String
+  location           Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  sku                String
+  barcode            String?
+  mpn                String?
+  title              String
+  category           String
+  brandCompatibility String[] @default([])
+  modelCompatibility String[] @default([])
+  quantityOnHand     Int      @default(0)
+  quantityReserved   Int      @default(0)
+  reorderPoint       Int      @default(2)
+  storageBin         String?
+  supplierId         String?
+  purchasePriceNet   Decimal  @db.Decimal(12, 2)
+  markupPercent      Decimal  @default(40.0) @db.Decimal(6, 2)
+  sellingPriceNet    Decimal  @db.Decimal(12, 2)
+  taxRate            Decimal  @default(19.0) @db.Decimal(5, 2)
+  sellingPriceGross  Decimal  @db.Decimal(12, 2)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  jobItems  JobItem[]
+  movements StockMovement[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, barcode])
+}
+
+enum StockMovementType {
+  RECEPTION
+  JOB_CONSUMPTION
+  SALE
+  ADJUSTMENT
+  RETURN
+}
+
+model StockMovement {
+  id              String            @id @default(uuid())
+  companyId       String
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItemId     String
+  stockItem       StockItem         @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  type            StockMovementType
+  quantity        Int
+  unitCostNet     Decimal           @db.Decimal(12, 2)
+  supplierRef     String?
+  jobId           String?
+  referenceNumber String?
+  note            String?
+  userId          String?
+  createdAt       DateTime          @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([stockItemId])
+}
+
+// ------------------------------------------------------------------------------
+// 6. Service catalog
+// ------------------------------------------------------------------------------
+
+model Service {
+  id              String   @id @default(uuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code            String
+  title           String
+  category        String   @default("Repair")
+  description     String?
+  durationMinutes Int      @default(30)
+  laborPriceNet   Decimal  @db.Decimal(12, 2)
+  taxRate         Decimal  @default(19.0) @db.Decimal(5, 2)
+  isExpressBookable Boolean @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([companyId, code])
+}
+
+// ------------------------------------------------------------------------------
+// 7. Invoicing, payments & fiscal compliance (GoBD)
+// ------------------------------------------------------------------------------
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model Invoice {
+  id         String   @id @default(uuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locationId String
+  contactId  String
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  jobId      String?
+  job        Job?     @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  documentType     String        @default("INVOICE")
+  invoiceNumber    String
+  status           InvoiceStatus @default(ISSUED)
+  subtotalNet      Decimal       @db.Decimal(12, 2)
+  taxTotal         Decimal       @db.Decimal(12, 2)
+  totalGross       Decimal       @db.Decimal(12, 2)
+  paidAmount       Decimal       @default(0.0) @db.Decimal(12, 2)
+  currency         String        @default("EUR")
+  issueDate        DateTime      @default(now())
+  dueDate          DateTime
+  paidAt           DateTime?
+  isEInvoice       Boolean       @default(false)
+  tseSignatureData String?
+  epcQrCodeString  String?
+  creditNoteOfId   String?
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  positions InvoicePosition[]
+  payments  Payment[]
+
+  @@unique([companyId, invoiceNumber])
+  @@index([companyId, status, issueDate])
+}
+
+model InvoicePosition {
+  id           String  @id @default(uuid())
+  invoiceId    String
+  invoice      Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  position     Int     @default(1)
+  title        String
+  quantity     Decimal @default(1.0) @db.Decimal(10, 2)
+  unitPriceNet Decimal @db.Decimal(12, 2)
+  taxRate      Decimal @default(19.0) @db.Decimal(5, 2)
+  netTotal     Decimal @db.Decimal(12, 2)
+  grossTotal   Decimal @db.Decimal(12, 2)
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id              String   @id @default(uuid())
+  invoiceId       String
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  paymentMethod   String
+  amount          Decimal  @db.Decimal(12, 2)
+  receivedAt      DateTime @default(now())
+  referenceNumber String?
+  notes           String?
+
+  @@index([invoiceId])
+}
+
+// ------------------------------------------------------------------------------
+// 8. Cashbook (Kassenbuch) & Z-report
+// ------------------------------------------------------------------------------
+
+model Cashbook {
+  id         String   @id @default(uuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  closedById String?
+  closedBy   User?    @relation(fields: [closedById], references: [id], onDelete: SetNull)
+
+  registerCode String   @default("POS-01")
+  businessDate DateTime
+  status       String   @default("OPEN")
+
+  openingBalance         Decimal @default(0.0) @db.Decimal(12, 2)
+  totalCashIn            Decimal @default(0.0) @db.Decimal(12, 2)
+  totalCashOut           Decimal @default(0.0) @db.Decimal(12, 2)
+  expectedClosingBalance Decimal @default(0.0) @db.Decimal(12, 2)
+  countedClosingBalance  Decimal? @db.Decimal(12, 2)
+  difference             Decimal? @db.Decimal(12, 2)
+  zReportNumber          Int?
+  tseSignature           String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  transactions CashTransaction[]
+
+  @@unique([companyId, locationId, registerCode, businessDate])
+}
+
+enum CashTransactionType {
+  OPENING
+  DEPOSIT
+  WITHDRAWAL
+  EXPENSE
+  SALE
+}
+
+model CashTransaction {
+  id             String               @id @default(uuid())
+  companyId      String
+  company        Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cashbookId     String
+  cashbook       Cashbook             @relation(fields: [cashbookId], references: [id], onDelete: Cascade)
+  locationId     String
+  location       Location             @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  type           CashTransactionType
+  amount         Decimal              @db.Decimal(12, 2)
+  balanceAfter   Decimal              @db.Decimal(12, 2)
+  description    String
+  receiptRef     String?
+  invoiceId      String?
+  userId         String
+  createdAt      DateTime             @default(now())
+
+  @@index([cashbookId, createdAt])
+}
+
+// ------------------------------------------------------------------------------
+// 9. Public tracking portal
+// ------------------------------------------------------------------------------
+
+model TrackingSession {
+  id        String   @id @default(uuid())
+  companyId String
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  token            String   @unique
+  tokenExpiresAt   DateTime
+  verifiedVia      String   @default("JOB_NUMBER_POSTAL_CODE")
+  verifiedAt       DateTime @default(now())
+  lastAccessAt     DateTime @default(now())
+  approvalStatus   String   @default("PENDING")
+  customerComment  String?
+  signatureDataUrl String?
+  createdAt        DateTime @default(now())
+
+  messages TrackingMessage[]
+
+  @@index([companyId])
+  @@index([jobId])
+}
+
+model TrackingMessage {
+  id         String          @id @default(uuid())
+  sessionId  String
+  session    TrackingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  authorType String          @default("CUSTOMER")
+  body       String
+  createdAt  DateTime        @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
+// ------------------------------------------------------------------------------
+// 10. Settings, notifications & audit
+// ------------------------------------------------------------------------------
+
+model JobStatusConfig {
+  id        String    @id @default(uuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  status    JobStatus
+  label     String
+  labelDe   String?
+  color     String
+  sortOrder Int       @default(0)
+  isDefault Boolean   @default(false)
+  triggerSms Boolean  @default(false)
+  triggerEmail Boolean @default(false)
+  templateId String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([companyId, status])
+}
+
+model MessageTemplate {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  channel   String   @default("SMS")
+  eventKey  String
+  subject   String?
+  body      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, channel, eventKey])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String?
+  entityId  String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([companyId, isRead, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+}
+
+// ------------------------------------------------------------------------------
+// 11. Gap-free document numbering (tenant + location scoped)
+// ------------------------------------------------------------------------------
+
+model NumberSequence {
+  id         String   @id @default(uuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  key        String
+  prefix     String
+  year       Int
+  nextValue  Int      @default(1)
+  padding    Int      @default(5)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([companyId, locationId, key, year])
+}
+
+// ------------------------------------------------------------------------------
+// 12. Device catalog (brands, models, common defects)
+// ------------------------------------------------------------------------------
+
+model DeviceBrand {
+  id        String        @id @default(uuid())
+  name      String        @unique
+  deviceType String       @default("SMARTPHONE")
+  logoUrl   String?
+  models    DeviceModel[]
+}
+
+model DeviceModel {
+  id         String      @id @default(uuid())
+  brandId    String
+  brand      DeviceBrand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  name       String
+  releaseYear Int?
+  createdAt  DateTime    @default(now())
+
+  @@unique([brandId, name])
+}
+
+model DeviceDefect {
+  id         String   @id @default(uuid())
+  label      String
+  labelDe    String?
+  category   String   @default("GENERAL")
+  sortOrder  Int      @default(0)
+}

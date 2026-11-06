@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --rc-primary: #2589f6;
+    --rc-primary-hover: #1e7cd2;
+    --rc-primary-light: #e5f2ff;
+    --rc-sidebar-bg: #343655;
+    --rc-surface: #ffffff;
+    --rc-canvas-bg: #f0f3f7;
+    --rc-border: #dee3e8;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-slate-700 antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #c9d1db;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-surface shadow-card;
+  }
+  .card-header {
+    @apply flex items-center justify-between gap-3 border-b border-line px-5 py-3.5;
+  }
+  .card-title {
+    @apply text-[13px] font-semibold uppercase tracking-wide text-slate-500;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold;
+  }
+  .table-base {
+    @apply w-full border-collapse text-sm;
+  }
+  .table-base thead th {
+    @apply whitespace-nowrap border-b border-line bg-slate-50/70 px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500;
+  }
+  .table-base tbody td {
+    @apply border-b border-line/70 px-5 py-3 align-middle;
+  }
+  .table-base tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .table-base tbody tr:hover {
+    @apply bg-slate-50/60;
+  }
+}
