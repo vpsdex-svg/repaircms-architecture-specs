@@ -1,0 +1,418 @@
+openapi: 3.1.0
+info:
+  title: RepairCMS Ultimate Enterprise API
+  description: |
+    Production REST API Specification for RepairCMS Cloud ERP, CRM & POS.
+    Reverse-engineered and architected from live production instances (`api-p.repaircms.com`).
+    Compliant with European VAT, German GoBD fiscal cash registers, and ZUGFeRD 2.3 e-invoicing.
+  version: 2.4.0
+  contact:
+    name: RepairCMS Engineering Architecture
+    url: https://repaircms.com
+servers:
+  - url: https://api-p.repaircms.com
+    description: Live Production API Gateway
+  - url: https://staging-api.repaircms.com
+    description: Staging Environment API
+  - url: http://localhost:4000/api/v1
+    description: Local Development Microservice
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Enter JWT Bearer token issued during /auth/login
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-KEY
+      description: API Key for external integrations (e.g. B2B, Kiosk, Webhooks)
+
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { type: object }
+        message: { type: string }
+        pagination:
+          $ref: '#/components/schemas/PaginationMetadata'
+        error:
+          $ref: '#/components/schemas/ApiError'
+
+    PaginationMetadata:
+      type: object
+      properties:
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 25 }
+        total: { type: integer, example: 142 }
+        totalPages: { type: integer, example: 6 }
+
+    ApiError:
+      type: object
+      properties:
+        code: { type: string, example: "INVALID_STATUS_TRANSITION" }
+        message: { type: string, example: "Illegal transition from DELIVERED to IN_PROGRESS" }
+        details: { type: array, items: { type: string } }
+
+    Job:
+      type: object
+      required: [jobNumber, trackingCode, status, customer, device, defect]
+      properties:
+        _id: { type: string, example: "6aecfc2e244f3ec67e92dd39" }
+        userId: { type: string, example: "6aecfc2e244f3ec67e92dd01" }
+        companyId: { type: string, example: "6aecfc2e244f3ec67e92dd10" }
+        locationId: { type: string, example: "6aecfc2e244f3ec67e92dd20" }
+        jobNumber: { type: string, example: "380468" }
+        trackingCode: { type: string, example: "TK-380468-B7" }
+        status:
+          type: string
+          enum: [NEW, BOOKED, DIAGNOSING, WAITING_FOR_PARTS, QUOTATION_SENT, QUOTATION_ACCEPTED, IN_PROGRESS, TESTING, READY_FOR_PICKUP, DELIVERED, CANCELLED, UNREPAIRABLE]
+          example: "BOOKED"
+        priority:
+          type: string
+          enum: [LOW, NORMAL, HIGH, URGENT]
+          example: "NORMAL"
+        customer:
+          type: object
+          properties:
+            contactId: { type: string, example: "6aecfc2e244f3ec67e92dc88" }
+            displayName: { type: string, example: "Ahmet Yilmaz" }
+            email: { type: string, example: "ahmet.yilmaz@example.de" }
+            phone: { type: string, example: "+49 176 11223344" }
+            isBusiness: { type: boolean, example: false }
+        device:
+          type: object
+          properties:
+            deviceType: { type: string, example: "SMARTPHONE" }
+            brand: { type: string, example: "Apple" }
+            model: { type: string, example: "iPhone 14 Pro Max" }
+            imei: { type: string, example: "354928110948215" }
+            serialNumber: { type: string, example: "F2LX90K8MD6R" }
+            color: { type: string, example: "Space Black" }
+            passcode: { type: string, example: "2468" }
+            accessories:
+              type: array
+              items: { type: string }
+              example: ["Original Box", "Protective Case"]
+        defect:
+          type: object
+          properties:
+            customerReportedDefect: { type: string, example: "OLED display shattered, touch unresponsive" }
+            technicianFindings: { type: string, example: "Digitizer severed, frame dented at corner" }
+        financials:
+          type: object
+          properties:
+            subtotalNet: { type: number, example: 125.21 }
+            taxTotal: { type: number, example: 23.79 }
+            totalGross: { type: number, example: 149.00 }
+            paidAmount: { type: number, example: 30.00 }
+            remainingBalance: { type: number, example: 119.00 }
+            currency: { type: string, example: "EUR" }
+
+    StockItem:
+      type: object
+      required: [sku, title, category, purchasePriceNet, sellingPriceGross]
+      properties:
+        _id: { type: string, example: "6aecfc2e244f3ec67e92de50" }
+        sku: { type: string, example: "DSP-IP14PM-OLED" }
+        barcode: { type: string, example: "4260192837461" }
+        title: { type: string, example: "Apple iPhone 14 Pro Max OLED Display Assembly" }
+        category: { type: string, example: "Displays" }
+        quantityOnHand: { type: integer, example: 7 }
+        quantityReserved: { type: integer, example: 2 }
+        reorderPoint: { type: integer, example: 2 }
+        purchasePriceNet: { type: number, example: 52.00 }
+        markupPercent: { type: number, example: 65.0 }
+        sellingPriceNet: { type: number, example: 85.80 }
+        taxRate: { type: number, example: 19.0 }
+        sellingPriceGross: { type: number, example: 102.10 }
+
+    Contact:
+      type: object
+      required: [customerNumber, contactType]
+      properties:
+        _id: { type: string, example: "6aecfc2e244f3ec67e92dc88" }
+        contactType: { type: string, enum: [INDIVIDUAL, BUSINESS, SUPPLIER], example: "BUSINESS" }
+        customerNumber: { type: string, example: "CUST-10492" }
+        companyName: { type: string, example: "Berlin Mobile Services GmbH" }
+        vatId: { type: string, example: "DE318492011" }
+        email: { type: string, example: "b2b@berlin-mobile.de" }
+        phone: { type: string, example: "+49 30 98765432" }
+
+paths:
+  /job/user/complete/{userId}:
+    get:
+      summary: Comprehensive Jobs Pipeline & Dashboard Overview
+      description: Discovered primary endpoint used by React frontend to fetch jobs with full filters.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, example: "BOOKED" }
+        - name: priority
+          in: query
+          schema: { type: string, example: "NORMAL" }
+        - name: assigneeId
+          in: query
+          schema: { type: string }
+        - name: locationId
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          description: Search by Job Number, IMEI, Serial, Phone, or Customer Name
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 25 }
+      responses:
+        200:
+          description: Successful retrieval of jobs and status counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Job' }
+                  pagination: { $ref: '#/components/schemas/PaginationMetadata' }
+                  meta:
+                    type: object
+                    properties:
+                      statusSummary:
+                        type: object
+                        example: { "BOOKED": 5, "IN_PROGRESS": 3, "READY_FOR_PICKUP": 2 }
+
+  /job/{jobId}:
+    get:
+      summary: Get detailed repair order by ObjectId or Job Number
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Job found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /job/{jobId}/status:
+    patch:
+      summary: Transition job status through Finite State Machine
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nextStatus, changedByUserId]
+              properties:
+                nextStatus: { type: string, example: "READY_FOR_PICKUP" }
+                changedByUserId: { type: string }
+                comment: { type: string, example: "Display replaced and QA test passed" }
+                notifyCustomer: { type: boolean, example: true }
+                notificationChannel: { type: string, enum: [NONE, SMS, EMAIL], example: "SMS" }
+      responses:
+        200:
+          description: Status transition successful
+
+  /stock-entry/get-stock-value/{userId}:
+    get:
+      summary: Total Inventory Valuation Engine
+      description: Returns aggregate cost, retail valuation, and physical item counts.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Stock valuation summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      itemsCount: { type: integer, example: 38 }
+                      totalUnits: { type: integer, example: 214 }
+                      netCostValuation: { type: number, example: 4520.50 }
+                      retailGrossValuation: { type: number, example: 8940.00 }
+                      currency: { type: string, example: "EUR" }
+
+  /cashbook/check-active-cashbook/{userId}:
+    get:
+      summary: Check Active Branch Cashbook (Kassenbuch)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: locationId
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        200:
+          description: Cashbook register status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  isActive: { type: boolean, example: true }
+                  data:
+                    type: object
+                    properties:
+                      registerCode: { type: string, example: "POS-BERLIN-01" }
+                      openingBalance: { type: number, example: 250.00 }
+                      expectedClosingBalance: { type: number, example: 689.50 }
+
+  /notification/user/{userId}:
+    get:
+      summary: Fetch real-time user notification feed
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: List of unread notifications
+
+  /quick-task/user/{userId}:
+    get:
+      summary: Fetch user daily to-do tasks
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Task items list
+
+  /user/repair-tracking/{portalId}:
+    get:
+      summary: Get Public RepairTracking Portal Branding & Configuration
+      parameters:
+        - name: portalId
+          in: path
+          required: true
+          description: Store portal slug (e.g. pMOoTOxoDa)
+          schema: { type: string, example: "pMOoTOxoDa" }
+      responses:
+        200:
+          description: Store branding, colors, contact phone, and operating hours
+
+  /company/repair-tracking/{userId}:
+    get:
+      summary: Get Public Company Header & Legal Info for Tracking Portal
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Company name, address, phone number
+
+  /customer/teaser/{portalId}/{trackingCode}:
+    get:
+      summary: Customer Repair Teaser & Milestone Progress (Public Tracking Query)
+      description: Returns sanitized public progress milestones, device details, and technician notes without PII
+      parameters:
+        - name: portalId
+          in: path
+          required: true
+          schema: { type: string, example: "pMOoTOxoDa" }
+        - name: trackingCode
+          in: path
+          required: true
+          description: 16-character hexadecimal tracking ID (0-9, A-F)
+          schema: { type: string, pattern: "^[0-9a-fA-F]{16}$", example: "c66f53d99abd4c6b" }
+      responses:
+        200:
+          description: Sanitized job progress, status milestones, and quotation status
+        404:
+          description: Tracking ID not found
+
+  /legal-disclosure/user/{userId}:
+    get:
+      summary: Get Store Legal Impressum
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Legal disclosure text
+
+  /privacy-policy/user/{userId}:
+    get:
+      summary: Get Store GDPR Privacy Policy
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Privacy policy text
+
+  /terms-of-service/user/{userId}:
+    get:
+      summary: Get Store Terms of Service (AGB)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Terms of service text
+
+  /integrations/sms/send:
+    post:
+      summary: Dispatch automated customer SMS via seven.io
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to, text]
+              properties:
+                to: { type: string, example: "+4917611223344" }
+                text: { type: string, example: "Your repair #380468 is ready for pickup at Fix Berlin." }
+                from: { type: string, example: "FixBerlin" }
+      responses:
+        200:
+          description: SMS dispatched successfully

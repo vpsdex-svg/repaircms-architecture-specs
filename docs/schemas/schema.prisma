@@ -1,0 +1,434 @@
+// ==============================================================================
+// RepairCMS Ultimate - Production Database Schema (Prisma ORM / PostgreSQL DDL)
+// Relational Database Model for Multi-Tenant Repair Center SaaS ERP, CRM & POS
+// ==============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ------------------------------------------------------------------------------
+// 1. Multi-Tenancy & Corporate Structure
+// ------------------------------------------------------------------------------
+
+model Company {
+  id              String      @id @default(uuid())
+  name            String      // e.g. "Fix"
+  legalName       String?     // e.g. "Fix Repair Services UG"
+  ceoName         String?     // "Fix it"
+  vatId           String?     // "DE318492011"
+  taxNumber       String?     // "37/241/01928"
+  eInvoiceId      String?     // Leitweg-ID / Peppol ID: "04011000-12345-67"
+  currency        String      @default("EUR")
+  timezone        String      @default("Europe/Berlin")
+  locale          String      @default("de-DE")
+  logoUrl         String?
+  street          String?
+  zipCode         String?
+  city            String?
+  country         String      @default("DE")
+  phone           String?
+  email           String?
+  website         String?
+  openingHours    String?     @default("09:00 - 18:00")
+  iban            String?
+  bic             String?
+  bankName        String?
+  portalSlug      String      @unique @default("pMOoTOxoDa")
+  planType        PlanType    @default(TRIAL)
+  trialEndsAt     DateTime?
+  subscriptionId  String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  locations       Location[]
+  users           User[]
+  contacts        Contact[]
+  jobs            Job[]
+  invoices        Invoice[]
+  stockItems      StockItem[]
+  services        Service[]
+  cashbooks       Cashbook[]
+}
+
+enum PlanType {
+  TRIAL
+  STARTER
+  BUSINESS
+  TEAM
+  ENTERPRISE
+}
+
+model Location {
+  id          String      @id @default(uuid())
+  companyId   String
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String      // e.g. "Berlin Branch", "Workshop 1"
+  code        String?     // e.g. "BER-01"
+  street      String?
+  zipCode     String?
+  city        String?
+  country     String      @default("DE")
+  phone       String?
+  email       String?
+  isMainStore Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  jobs        Job[]
+  stockItems  StockItem[]
+  cashbooks   Cashbook[]
+}
+
+// ------------------------------------------------------------------------------
+// 2. Identity, Roles & Permissions
+// ------------------------------------------------------------------------------
+
+model User {
+  id              String      @id @default(uuid())
+  companyId       String
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  email           String      @unique
+  passwordHash    String
+  firstName       String
+  lastName        String
+  role            UserRole    @default(TECHNICIAN)
+  avatarUrl       String?
+  phone           String?
+  language        String      @default("en")
+  twoFactorEmail  Boolean     @default(false)
+  twoFactorApp    Boolean     @default(false)
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  assignedJobs    Job[]       @relation("AssignedTechnician")
+  activities      JobActivity[]
+  cashbooksClosed Cashbook[]
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  TECHNICIAN
+  FRONT_DESK
+  CASHIER
+}
+
+// ------------------------------------------------------------------------------
+// 3. Customer & Supplier CRM
+// ------------------------------------------------------------------------------
+
+model Contact {
+  id               String       @id @default(uuid())
+  companyId        String
+  company          Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactType      ContactType  @default(INDIVIDUAL)
+  customerNumber   String
+  salutation       String?
+  title            String?
+  firstName        String?
+  lastName         String?
+  companyName      String?
+  vatId            String?
+  taxNumber        String?
+  eInvoiceId       String?
+  email            String?
+  phone            String?
+  mobile           String?
+  street           String?
+  zipCode          String?
+  city             String?
+  country          String       @default("DE")
+  paymentDueDays   Int          @default(14)
+  discountRate     Decimal      @default(0.0) @db.Decimal(5, 2)
+  notes            String?
+  gdprAccepted     Boolean      @default(false)
+  gdprAcceptedAt   DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  jobs             Job[]
+  invoices         Invoice[]
+
+  @@unique([companyId, customerNumber])
+  @@index([companyId, email])
+  @@index([companyId, phone])
+}
+
+enum ContactType {
+  INDIVIDUAL
+  BUSINESS
+  SUPPLIER
+}
+
+// ------------------------------------------------------------------------------
+// 4. Jobs & Repair Tickets Engine
+// ------------------------------------------------------------------------------
+
+model Job {
+  id                     String       @id @default(uuid())
+  companyId              String
+  company                Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locationId             String
+  location               Location     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  contactId              String
+  contact                Contact      @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  assignedTechnicianId   String?
+  assignedTechnician     User?        @relation("AssignedTechnician", fields: [assignedTechnicianId], references: [id], onDelete: SetNull)
+
+  jobNumber              String       // e.g. "380468"
+  trackingCode           String       @unique // 16-hex token, e.g. "c66f53d99abd4c6b"
+  status                 JobStatus    @default(BOOKED)
+  priority               JobPriority  @default(NORMAL)
+
+  // Device Info
+  deviceType             String       @default("SMARTPHONE")
+  brand                  String       // "Apple"
+  model                  String       // "iPhone 15 Pro"
+  imei                   String?      // 15 digits Luhn checked
+  serialNumber           String?
+  color                  String?
+  passcode               String?      // "1988"
+  patternLock            Int[]        // indices 0-8
+  cosmeticCondition      String?
+  accessories            String[]     // ["Case", "Charger"]
+
+  // Diagnosis & Checklist
+  customerReportedDefect String
+  technicianFindings     String?
+
+  // Financials
+  subtotalNet            Decimal      @default(0.0) @db.Decimal(12, 2)
+  taxTotal               Decimal      @default(0.0) @db.Decimal(12, 2)
+  totalGross             Decimal      @default(0.0) @db.Decimal(12, 2)
+  paidAmount             Decimal      @default(0.0) @db.Decimal(12, 2)
+  remainingBalance       Decimal      @default(0.0) @db.Decimal(12, 2)
+  depositPaid            Decimal      @default(0.0) @db.Decimal(12, 2)
+
+  // Dates
+  dueAt                  DateTime?
+  completedAt            DateTime?
+  deliveredAt            DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  items                  JobItem[]
+  activities             JobActivity[]
+  invoices               Invoice[]
+
+  @@unique([companyId, jobNumber])
+  @@index([companyId, status, createdAt])
+  @@index([trackingCode])
+}
+
+enum JobStatus {
+  NEW
+  BOOKED
+  DIAGNOSING
+  WAITING_FOR_PARTS
+  QUOTATION_SENT
+  QUOTATION_ACCEPTED
+  IN_PROGRESS
+  TESTING
+  READY_FOR_PICKUP
+  DELIVERED
+  CANCELLED
+  UNREPAIRABLE
+}
+
+enum JobPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model JobItem {
+  id              String       @id @default(uuid())
+  jobId           String
+  job             Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stockItemId     String?
+  stockItem       StockItem?   @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
+  itemType        String       // "PART", "LABOR", "CUSTOM"
+  sku             String?
+  title           String
+  quantity        Decimal      @default(1.0) @db.Decimal(10, 2)
+  unitCostNet     Decimal      @default(0.0) @db.Decimal(12, 2)
+  unitPriceNet    Decimal      @db.Decimal(12, 2)
+  taxRate         Decimal      @default(19.0) @db.Decimal(5, 2)
+  discountPercent Decimal      @default(0.0) @db.Decimal(5, 2)
+  totalNet        Decimal      @db.Decimal(12, 2)
+  totalGross      Decimal      @db.Decimal(12, 2)
+}
+
+model JobActivity {
+  id                  String       @id @default(uuid())
+  jobId               String
+  job                 Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  statusFrom          JobStatus?
+  statusTo            JobStatus
+  changedById         String
+  changedBy           User         @relation(fields: [changedById], references: [id])
+  timestamp           DateTime     @default(now())
+  comment             String?
+  customerNotified    Boolean      @default(false)
+  notificationChannel String?      @default("NONE")
+}
+
+// ------------------------------------------------------------------------------
+// 5. Inventory & Stock Management
+// ------------------------------------------------------------------------------
+
+model StockItem {
+  id                 String       @id @default(uuid())
+  companyId          String
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locationId         String
+  location           Location     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  sku                String
+  barcode            String?
+  title              String
+  category           String
+  brandCompatibility String[]
+  modelCompatibility String[]
+  quantityOnHand     Int          @default(0)
+  quantityReserved   Int          @default(0)
+  reorderPoint       Int          @default(2)
+  storageBin         String?
+  purchasePriceNet   Decimal      @db.Decimal(12, 2)
+  markupPercent      Decimal      @default(40.0) @db.Decimal(6, 2)
+  sellingPriceNet    Decimal      @db.Decimal(12, 2)
+  taxRate            Decimal      @default(19.0) @db.Decimal(5, 2)
+  sellingPriceGross  Decimal      @db.Decimal(12, 2)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  jobItems           JobItem[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, barcode])
+}
+
+// ------------------------------------------------------------------------------
+// 6. Services Catalog
+// ------------------------------------------------------------------------------
+
+model Service {
+  id              String       @id @default(uuid())
+  companyId       String
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code            String
+  title           String
+  description     String?
+  durationMinutes Int          @default(30)
+  laborPriceNet   Decimal      @db.Decimal(12, 2)
+  taxRate         Decimal      @default(19.0) @db.Decimal(5, 2)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([companyId, code])
+}
+
+// ------------------------------------------------------------------------------
+// 7. Invoicing, Payments & Fiscal Compliance (GoBD / TSE / ZUGFeRD)
+// ------------------------------------------------------------------------------
+
+model Invoice {
+  id                 String          @id @default(uuid())
+  companyId          String
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locationId         String
+  contactId          String
+  contact            Contact         @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  jobId              String?
+  job                Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  invoiceNumber      String
+  status             InvoiceStatus   @default(ISSUED)
+  subtotalNet        Decimal         @db.Decimal(12, 2)
+  taxTotal           Decimal         @db.Decimal(12, 2)
+  totalGross         Decimal         @db.Decimal(12, 2)
+  paidAmount         Decimal         @default(0.0) @db.Decimal(12, 2)
+  currency           String          @default("EUR")
+  issueDate          DateTime        @default(now())
+  dueDate            DateTime
+  paidAt             DateTime?
+  isEInvoice         Boolean         @default(false)
+  tseSignatureData   String?
+  epcQrCodeString    String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  positions          InvoicePosition[]
+  payments           Payment[]
+
+  @@unique([companyId, invoiceNumber])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  PARTIALLY_PAID
+  OVERDUE
+  CANCELLED
+}
+
+model InvoicePosition {
+  id              String       @id @default(uuid())
+  invoiceId       String
+  invoice         Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  title           String
+  quantity        Decimal      @default(1.0) @db.Decimal(10, 2)
+  unitPriceNet    Decimal      @db.Decimal(12, 2)
+  taxRate         Decimal      @default(19.0) @db.Decimal(5, 2)
+  netTotal        Decimal      @db.Decimal(12, 2)
+  grossTotal      Decimal      @db.Decimal(12, 2)
+}
+
+model Payment {
+  id              String       @id @default(uuid())
+  invoiceId       String
+  invoice         Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  paymentMethod   String       // "CASH", "CARD_TERMINAL", "STRIPE", "BANK_TRANSFER"
+  amount          Decimal      @db.Decimal(12, 2)
+  receivedAt      DateTime     @default(now())
+  referenceNumber String?
+  notes           String?
+}
+
+// ------------------------------------------------------------------------------
+// 8. Fiscal Daily Cashbook (Kassenbuch / KassenSichV)
+// ------------------------------------------------------------------------------
+
+model Cashbook {
+  id                     String       @id @default(uuid())
+  companyId              String
+  company                Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  locationId             String
+  location               Location     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  closedById             String?
+  closedBy               User?        @relation(fields: [closedById], references: [id])
+  registerCode           String       @default("POS-01")
+  businessDate           DateTime
+  status                 String       @default("OPEN") // "OPEN", "CLOSED"
+  openingBalance         Decimal      @db.Decimal(12, 2)
+  totalCashIn            Decimal      @default(0.0) @db.Decimal(12, 2)
+  totalCashOut           Decimal      @default(0.0) @db.Decimal(12, 2)
+  expectedClosingBalance Decimal      @db.Decimal(12, 2)
+  countedClosingBalance  Decimal?     @db.Decimal(12, 2)
+  difference             Decimal?     @db.Decimal(12, 2)
+  zReportNumber          Int?
+  tseSignature           String?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  @@unique([companyId, locationId, registerCode, businessDate])
+}

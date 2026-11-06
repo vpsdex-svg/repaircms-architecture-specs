@@ -1,0 +1,211 @@
+{
+  "company": {
+    "id": "6aecfc2e244f3ec67e92dd39",
+    "name": "Fix",
+    "legalName": "Fix Repair Services UG",
+    "ceo": "Fix it",
+    "vatId": "DE318492011",
+    "taxNumber": "37/241/01928",
+    "currency": "EUR",
+    "timezone": "Europe/Berlin",
+    "locale": "de-DE",
+    "street": "Frankfurter Allee 53",
+    "zipCode": "13357",
+    "city": "Berlin",
+    "country": "Germany",
+    "phone": "159063277666",
+    "email": "daser46507@drtall.com",
+    "website": "drtall.com",
+    "openingHours": "09:00 - 09:00",
+    "portalSlug": "pMOoTOxoDa",
+    "planType": "TRIAL",
+    "trialDaysRemaining": 14
+  },
+  "users": [
+    {
+      "id": "usr_owner_001",
+      "name": "mini laptop",
+      "email": "daser46507@drtall.com",
+      "role": "OWNER",
+      "location": "berlin",
+      "isActive": true
+    }
+  ],
+  "contacts": [
+    {
+      "id": "6aecfd98244f3ec67e92e2d7",
+      "contactId": 5525130,
+      "type": "PERSONAL",
+      "salutation": "Mr",
+      "firstName": "TEST",
+      "lastName": "TEST",
+      "email": "customer@example.com",
+      "mobile": "+491701234567",
+      "street": "Alexanderplatz 1",
+      "zipCode": "10178",
+      "city": "Berlin",
+      "country": "Germany",
+      "totalEarnings": "€ 0,00",
+      "paymentTermsDays": 0
+    },
+    {
+      "id": "cnt_biz_002",
+      "contactId": 5525131,
+      "type": "BUSINESS",
+      "businessName": "TechFleet Logistics GmbH",
+      "contactPerson": "Stefan Schmidt",
+      "vatId": "DE815492019",
+      "eInvoiceId": "04011000-12345-67",
+      "email": "fleet@techfleet.de",
+      "mobile": "+491719876543",
+      "street": "Kurfürstendamm 102",
+      "zipCode": "10711",
+      "city": "Berlin",
+      "country": "Germany",
+      "paymentTermsDays": 14
+    },
+    {
+      "id": "cnt_sup_003",
+      "contactId": 5525132,
+      "type": "SUPPLIER",
+      "businessName": "EuroParts Wholesale B.V.",
+      "contactPerson": "Lars Van Dijk",
+      "vatId": "NL859201948B01",
+      "email": "orders@europarts.eu",
+      "phone": "+31201234567",
+      "city": "Amsterdam",
+      "country": "Netherlands",
+      "paymentTermsDays": 30
+    }
+  ],
+  "jobs": [
+    {
+      "id": "job_001",
+      "jobNumber": 380468,
+      "status": "BOOKED",
+      "priority": "NEUTRAL",
+      "jobType": "REPAIR",
+      "deviceType": "Smart Phone",
+      "brand": "Apple",
+      "model": "iPhone 15 Pro",
+      "imei": "352099001761482",
+      "serialNumber": "F2LX90K8MD6R",
+      "condition": "USED",
+      "accessories": ["charger", "cable", "case"],
+      "lockType": "PIN",
+      "lockPin": "1988",
+      "symptoms": "Broken front OLED display, vertical green line on screen, touch responsive on lower half only",
+      "internalNotes": "Customer requested original quality OLED panel replacement",
+      "estimatedCost": 189.00,
+      "depositAmount": 50.00,
+      "boxLocation": "Box A-12",
+      "customerName": "TEST TEST",
+      "createdAt": "2026-11-05T23:05:37Z"
+    },
+    {
+      "id": "job_002",
+      "jobNumber": 223703,
+      "status": "DRAFT",
+      "priority": "NEUTRAL",
+      "jobType": "REPAIR",
+      "deviceType": "Notebook",
+      "brand": "Dell",
+      "model": "XPS 15 9520",
+      "serialNumber": "8FJ2K93",
+      "condition": "LIKE_NEW",
+      "accessories": ["power_adapter"],
+      "lockType": "PASSWORD",
+      "symptoms": "Battery does not hold charge, shuts off immediately when disconnected from power",
+      "estimatedCost": 120.00,
+      "depositAmount": 0.00,
+      "customerName": "TEST Demo",
+      "createdAt": "2026-11-05T23:44:49Z"
+    }
+  ],
+  "stockItems": [
+    {
+      "id": "stk_001",
+      "sku": "SCR-IP15P-OLED",
+      "barcode": "4012345678901",
+      "oemNumber": "821-0492-A",
+      "name": "iPhone 15 Pro OLED Display Assembly - Soft OLED",
+      "category": "Screens",
+      "brand": "Apple",
+      "purchasePrice": 65.00,
+      "profitMarkupPct": 130.0,
+      "sellingPriceNet": 149.50,
+      "vatRate": 19.0,
+      "sellingPriceGross": 177.91,
+      "quantityOnHand": 6,
+      "minStockAlert": 2
+    },
+    {
+      "id": "stk_002",
+      "sku": "BAT-IP15P-3274",
+      "barcode": "4012345678902",
+      "oemNumber": "616-00941",
+      "name": "iPhone 15 Pro Battery 3274mAh Ti-Core OEM",
+      "category": "Batteries",
+      "brand": "Apple",
+      "purchasePrice": 14.50,
+      "profitMarkupPct": 200.0,
+      "sellingPriceNet": 43.50,
+      "vatRate": 19.0,
+      "sellingPriceGross": 51.77,
+      "quantityOnHand": 12,
+      "minStockAlert": 3
+    }
+  ],
+  "services": [
+    {
+      "id": "srv_001",
+      "name": "Smart Phone Display Replacement Labor",
+      "category": "Display Service",
+      "pricingModel": "FIXED",
+      "fixedPrice": 39.00,
+      "estimatedMinutes": 35,
+      "vatRate": 19.0,
+      "isExpressBookable": true
+    },
+    {
+      "id": "srv_002",
+      "name": "Board Level Diagnostics & Cleaning",
+      "category": "Diagnostics",
+      "pricingModel": "HOURLY",
+      "hourlyRate": 79.00,
+      "estimatedMinutes": 60,
+      "vatRate": 19.0,
+      "isExpressBookable": false
+    }
+  ],
+  "invoices": [
+    {
+      "id": "inv_001",
+      "invoiceNumber": "INV-2026-00105",
+      "status": "UNPAID",
+      "contactName": "TEST TEST",
+      "jobNumber": 380468,
+      "issueDate": "2026-11-05",
+      "dueDate": "2026-11-19",
+      "subtotalNet": 188.50,
+      "taxAmount": 35.82,
+      "totalGross": 224.32,
+      "positions": [
+        {
+          "description": "iPhone 15 Pro OLED Display Assembly",
+          "quantity": 1,
+          "unitPriceNet": 149.50,
+          "vatRate": 19.0,
+          "totalGross": 177.91
+        },
+        {
+          "description": "Display Replacement Labor Service",
+          "quantity": 1,
+          "unitPriceNet": 39.00,
+          "vatRate": 19.0,
+          "totalGross": 46.41
+        }
+      ]
+    }
+  ]
+}
